@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rotating See-Through ASCII Sphere with Controls</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+    }
+    /* Control panel styling */
+    #controls {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      color: white;
+      z-index: 100;
+      font-family: monospace;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
+      width: 310px;
+      text-align: right;
+    }
+    #controls label {
+      display: block;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Control Panel -->
+  <div id="controls">
+    <label>
+      Speed: <span id="speedValueText">1.0</span>
+      <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1" />
+    </label>
+    <label>
+      Number Generation: <span id="numberGenValueText">0.00</span>
+      <input type="range" id="numberGenSlider" min="0" max="1" step="0.01" value="0" />
+    </label>
+    <label>
+      Sphere Size: <span id="sizeValueText">600</span>
+      <input type="range" id="sizeSlider" min="100" max="2000" step="10" value="600" />
+    </label>
+    <label>
+      Number Density: <span id="densityValueText">12</span>
+      <input type="range" id="densitySlider" min="2" max="100" step="1" value="12" />
+    </label>
+    <label>
+      Hue (0–360): <span id="hueValueText">0</span>
+      <input type="range" id="hueSlider" min="0" max="360" step="1" value="0" />
+    </label>
+    <label>
+      Color Saturation: <span id="saturationValueText">0</span>
+      <input type="range" id="saturationSlider" min="0" max="100" step="1" value="0" />
+    </label>
+    <label>
+      Font Size: <span id="fontSizeValueText">32</span> 
+      <input type="range" id="fontSizeSlider" min="5" max="200" step="1" value="32" />
+    </label>
+  </div>
+
+  <canvas id="canvas"></canvas>
+  <script>
+    // Set up the canvas.
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    // Base rotation increments.
+    const baseIncrementX = 0.02;
+    const baseIncrementZ = 0.01;
+
+    // Rotation angles.
+    let angleX = 0;
+    let angleZ = 0;
+
+    // Frame counter to slow the random number generation.
+    let frameCounter = 0;
+
+    function draw() {
+      // Get slider values.
+      const speedFactor = parseFloat(document.getElementById('speedSlider').value);
+      const numberGenFactor = parseFloat(document.getElementById('numberGenSlider').value);
+      const scale = parseFloat(document.getElementById('sizeSlider').value);
+      const density = parseInt(document.getElementById('densitySlider').value, 10);
+      const hue = parseFloat(document.getElementById('hueSlider').value);
+      const saturation = parseFloat(document.getElementById('saturationSlider').value);
+      const fontSize = parseInt(document.getElementById('fontSizeSlider').value, 10);
+
+      //Update the text values.
+      document.getElementById('speedValueText').textContent = speedFactor;
+      document.getElementById('numberGenValueText').textContent = numberGenFactor;
+      document.getElementById('sizeValueText').textContent = scale;
+      document.getElementById('densityValueText').textContent = density;
+      document.getElementById('hueValueText').textContent = hue;
+      document.getElementById('saturationValueText').textContent = saturation;
+      document.getElementById('fontSizeValueText').textContent = fontSize;
+
+      // Update the font size.
+      ctx.font = fontSize + "px monospace";
+
+      // Compute angular steps based on density.
+      const dPhi = Math.PI / density;
+      const dTheta = Math.PI / density;
+
+      // Sphere and perspective parameters.
+      const radius = 1;  // Unit sphere.
+      const K2 = 3;      // Depth offset for perspective.
+
+      // Clear the canvas.
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Array to hold all points (for depth sorting).
+      const points = [];
+
+      // Loop over spherical coordinates to sample the sphere’s surface.
+      for (let phi = 0; phi < Math.PI; phi += dPhi) {
+        for (let theta = 0; theta < 2 * Math.PI; theta += dTheta) {
+          // Compute a point on the unit sphere.
+          let x = radius * Math.sin(phi) * Math.cos(theta);
+          let y = radius * Math.sin(phi) * Math.sin(theta);
+          let z = radius * Math.cos(phi);
+
+          // --- 3D Rotation ---
+          // Rotate around the X-axis.
+          let y1 = y * Math.cos(angleX) - z * Math.sin(angleX);
+          let z1 = y * Math.sin(angleX) + z * Math.cos(angleX);
+          let x1 = x;
+          // Rotate around the Z-axis.
+          let x2 = x1 * Math.cos(angleZ) - y1 * Math.sin(angleZ);
+          let y2 = x1 * Math.sin(angleZ) + y1 * Math.cos(angleZ);
+          let z2 = z1;
+
+          // --- Perspective Projection ---
+          // The camera is assumed to be at z = -K2.
+          const perspective = scale / (z2 + K2);
+          const xProj = centerX + x2 * perspective;
+          const yProj = centerY - y2 * perspective;
+
+          // --- Depth-Based Brightness & Transparency ---
+          // Normalize z2 (which roughly ranges from -1 for the back/closest
+          // to +1 for the front/farthest) so that:
+          //   normalized = 1 when z2 = -1 (closest)
+          //   normalized = 0 when z2 = +1 (farthest)
+          const normalized = (1 - z2) / 2;
+          // Map normalized to a lightness value (e.g., from 20% to 80%).
+          const lightness = 20 + 60 * normalized;
+          // Set alpha so that all points remain visible.
+          const alpha = 0.5 + 0.3 * normalized;
+
+          // --- Number Generation ---
+          const i = Math.floor(phi / dPhi);
+          const j = Math.floor(theta / dTheta);
+          const patternDigit = ((i + j) % 10);
+          // Slow the random number update by a factor of 10.
+          const randomTime = Math.floor(frameCounter / 10);
+          const randomDigit =
+            Math.floor(
+              Math.abs(Math.sin(i * 12.9898 + j * 78.233 + randomTime * 37.719)) * 10000
+            ) % 10;
+          // Blend between the fixed pattern and the random digit.
+          const digitValue = Math.floor((1 - numberGenFactor) * patternDigit + numberGenFactor * randomDigit);
+          const digit = digitValue.toString();
+
+          // Save this point’s data.
+          points.push({
+            xProj,
+            yProj,
+            z2,         // For depth sorting.
+            lightness,  // 20% (far) to 80% (near).
+            alpha,      // 0.5 (far) to 0.8 (near).
+            digit
+          });
+        }
+      }
+
+      // --- Depth Sorting ---
+      // Sort points so that farther ones (larger z2) are drawn first.
+      points.sort((a, b) => b.z2 - a.z2);
+
+      // --- Draw the Points ---
+      for (const pt of points) {
+        // If saturation is 0, use grayscale; otherwise, use the chosen hue and saturation.
+        const fillColor =
+          saturation === 0
+            ? `hsla(0, 0%, ${pt.lightness}%, ${pt.alpha})`
+            : `hsla(${hue}, ${saturation}%, ${pt.lightness}%, ${pt.alpha})`;
+        ctx.fillStyle = fillColor;
+        ctx.fillText(pt.digit, pt.xProj, pt.yProj);
+      }
+
+      // --- Update Rotation Angles Using the Speed Factor ---
+      angleX += baseIncrementX * speedFactor;
+      angleZ += baseIncrementZ * speedFactor;
+
+      // Increment the frame counter.
+      frameCounter++;
+
+      requestAnimationFrame(draw);
+    }
+
+    draw();
+  </script>
+</body>
+</html>
